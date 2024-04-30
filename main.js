@@ -1,87 +1,77 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2014 Chris Wilson
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-var audioContext = null;
-var meter = null;
-var canvasContext = null;
-var WIDTH=500;
-var HEIGHT=50;
-var rafID = null;
-var mediaStreamSource = null;
+let audioContext = null;
+let meter = null;
+let canvasContext = null;
+const WIDTH = 500;
+const HEIGHT = 50;
+let rafID = null;
+let mediaStreamSource = null;
+let localAudio = null
 
 window.onload = function() {
+  // grab our canvas
+  canvasContext = document.getElementById("meter").getContext("2d");
+  localAudio = document.getElementById("local-audio")
+};
 
-    // grab our canvas
-	canvasContext = document.getElementById( "meter" ).getContext("2d");
-}
+function startMeter() {
+  // grab an audio context
+  audioContext = new AudioContext();
 
-function startMeter() {	
-    // grab an audio context
-    audioContext = new AudioContext();
-
+  // Register the AudioWorkletProcessor
     // Attempt to get audio input
-    navigator.mediaDevices.getUserMedia(
-    {
-        "audio": {
-            "mandatory": {
-                "googEchoCancellation": "false",
-                "googAutoGainControl": "false",
-                "googNoiseSuppression": "false",
-                "googHighpassFilter": "false"
-            },
-            "optional": []
-        },
-    }).then((stream) => {
-        // Create an AudioNode from the stream.
-        mediaStreamSource = audioContext.createMediaStreamSource(stream);
+    navigator.mediaDevices.getUserMedia({
+      "audio": true
+    }).then(async (stream) => {
+      localAudio.srcObject = stream
+      await audioContext.audioWorklet.addModule('audio-meter-processor.js')
+      // Create an AudioNode from the stream.
+      mediaStreamSource = audioContext.createMediaStreamSource(stream);
 
-        // Create a new volume meter and connect it.
-        meter = createAudioMeter(audioContext);
-        mediaStreamSource.connect(meter);
+      // // low pass filter
+      // const lowPassFilter = audioContext.createBiquadFilter();
+      // lowPassFilter.type = 'lowpass';
+      // lowPassFilter.frequency.value = 20000; // 20 kHz cutoff frequency
 
-        // kick off the visual updating
-        drawLoop();
+
+      // // high pass filter
+      // const highPassFilter = audioContext.createBiquadFilter();
+      // highPassFilter.type = 'highpass';
+      // highPassFilter.frequency.value = 20; // 20 Hz cutoff frequency
+
+      // mediaStreamSource.connect(lowPassFilter);
+      // lowPassFilter.connect(highPassFilter);
+
+      // Create a new volume meter and connect it.
+      meter = new AudioWorkletNode(audioContext, 'audio-meter-processor');
+      mediaStreamSource.connect(meter);
+
+      // kick off the visual updating
+      drawLoop();
     }).catch((err) => {
-        // always check for errors at the end.
-        console.error(`${err.name}: ${err.message}`);
-        alert('Stream generation failed.');
+      // always check for errors at the end.
+      console.error(`${err.name}: ${err.message}`);
+      alert('Stream generation failed.');
     });
 }
 
-
-function drawLoop( time ) {
-    // clear the background
-    canvasContext.clearRect(0,0,WIDTH,HEIGHT);
-
-    // check if we're currently clipping
-    if (meter.checkClipping())
-        canvasContext.fillStyle = "red";
-    else
-        canvasContext.fillStyle = "green";
-
+function drawLoop(time) {
+  // clear the background
+    canvasContext.clearRect(0, 0, WIDTH, HEIGHT);
+    meter.port.onmessage = (event) => {
+    canvasContext.clearRect(0, 0, WIDTH, HEIGHT);
+    if (event.data.hasOwnProperty("clipping")) {
+        console.log('here chipping data');
+        if (event.data.clipping === true){
+            canvasContext.fillStyle = "red";
+            console.log('here red');
+        }
+        else{
+            canvasContext.fillStyle = "green";
+            console.log('here green');
+        }
+    }
+    canvasContext.fillRect(0, 0, event.data.volume * WIDTH * 1.4, HEIGHT);
     // draw a bar based on the current volume
-    canvasContext.fillRect(0, 0, meter.volume*WIDTH*1.4, HEIGHT);
-
-    // set up the next visual callback
-    rafID = window.requestAnimationFrame( drawLoop );
+    // console.log('drawLoop.volume', event.data.volume );
+    };
 }
